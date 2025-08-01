@@ -1,8 +1,10 @@
 #include "ui_pdfviewer.h"
 #include <pdfviewer.h>
+#include <QObject>
 #include <QFileDialog>
 #include <QFrame>
 #include <QVBoxLayout>
+#include <QMessageBox>
 #include <QScrollBar>
 #include <QPainter>
 #include <QImage>
@@ -19,40 +21,63 @@ PdfViewer::PdfViewer(QString file, QWidget *parent)
     , ui(new Ui::PdfViewer)
 {
     ui->setupUi(this);
+
+    /* Prevent UI panel from collapsing */
     ui->splitter->setCollapsible(0, false);
     ui->splitter->setCollapsible(1, false);
 
-    controller = new SmartController(this);
+
+
+
+    /*
+     * Experimental function
+     * controller = new SmartController(this);
+     */
+
+
+
 
     if(!doc || doc->isLocked()){
-        qDebug() << "Fail to load or locked";
+        QMessageBox::warning(this, "Alert", "Fail to load or locked!", QMessageBox::StandardButton::Close);
         return;
     }
 
+
+
+    /* Set up a top-level layout for scrollAreaWidgetContents and insert the PDF page widget into it */
     layout = new QVBoxLayout(ui->scrollAreaWidgetContents);
     layout->setSpacing(10);
-    ui->scrollAreaWidgetContents->setLayout(layout);
+    //ui->scrollAreaWidgetContents->setLayout(layout);
+
+
+
+    /* Prevent horizontal scroll */
     ui->scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
+
+
+    /* Add the PDF page widget to scrollAreaWidgetContents */
     for(int i = 0; i < doc->numPages(); ++i){
         PageWidget *page = new PageWidget(this, doc->page(i));
+
+        /* Set CSS for the PDF page widget */
         QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(page);
         shadow->setBlurRadius(10);
         shadow->setOffset(0, 0);
         page->setGraphicsEffect(shadow);
-        ui->scrollAreaWidgetContents->layout()->addWidget(page);
-        pageWidgets.push_back(page);
         page->load();
+
+        ui->scrollAreaWidgetContents->layout()->addWidget(page);
     }
 
-    QTimer *updateTimer = new QTimer(this);
-    updateTimer->setSingleShot(true);
+    /* Delay widget position update by 0.1 seconds after scroll */
     connect(ui->scrollArea->verticalScrollBar(), &QScrollBar::valueChanged, this, [=](){
-        updateTimer->start(50);
+        QTimer::singleShot(100, this, &PdfViewer::updateVisiblePages);
     });
 
-    connect(updateTimer, &QTimer::timeout, this, [=](){
-        updateVisiblePages();
+    /* Connect splitter movement to widget resize */
+    connect(ui->splitter, &QSplitter::splitterMoved, this, [=](){
+        this->resizeEvent(NULL);
     });
 
     // foreach (Poppler::OutlineItem out, doc->outline()) {
@@ -72,19 +97,19 @@ int PdfViewer::getCurrentPage() {
     int scrollY = ui->scrollArea->verticalScrollBar()->value();
     int accumulatedHeight = 0;
 
-    for (int i = 0; i < pageWidgets.size(); ++i) {
-        accumulatedHeight += pageWidgets[i]->getImage().height() + layout->spacing();
+    for (int i = 0; i < layout->count(); ++i) {
+        accumulatedHeight += ((PageWidget*)layout->itemAt(i)->widget())->getImage().height() + layout->spacing();
         if (scrollY < accumulatedHeight) {
             return i;
         }
     }
-    return pageWidgets.size() - 1;
+    return layout->count() - 1;
 }
 
 void PdfViewer::setCurrentPage(int page) {
     int accumulatedHeight = 0;
 
-    for (int i = 0; i < page; ++i) accumulatedHeight += pageWidgets[i]->getImage().height() + layout->spacing();
+    for (int i = 0; i < page; ++i) accumulatedHeight += ((PageWidget*)layout->itemAt(i)->widget())->getImage().height() + layout->spacing();
     ui->scrollArea->verticalScrollBar()->setValue(accumulatedHeight);
 }
 
@@ -100,11 +125,14 @@ void PdfViewer::updateVisiblePages() {
 
     qDebug() << currentPage;
 
-    for (int i = 0; i < pageWidgets.size(); ++i) {
+    for (int i = 0; i < layout->count(); ++i) {
+        PageWidget *widget = (PageWidget*)layout->itemAt(i)->widget();
+        if(!widget) break;
+
         if (currentPage - range <= i && i <= currentPage + range) {
-            if (!pageWidgets[i]->isLoaded()) pageWidgets[i]->load();
+            if (!widget->isLoaded()) widget->load();
         } else {
-            if (pageWidgets[i]->isLoaded()) pageWidgets[i]->unload();
+            if (widget->isLoaded()) widget->unload();
         }
     }
 }
@@ -115,10 +143,13 @@ void PdfViewer::resizeEvent(QResizeEvent *event) {
     int currentPage = getCurrentPage();
     int range = 5;
 
-    for (int i = 0; i < pageWidgets.size(); ++i) {
+    for (int i = 0; i < layout->count(); ++i) {
         if (currentPage - range <= i && i <= currentPage + range) {
-            pageWidgets[i]->unload();
-            pageWidgets[i]->load();
+            PageWidget *widget = (PageWidget*)layout->itemAt(i)->widget();
+            if(widget){
+                widget->unload();
+                widget->load();
+            }
         }
     }
 }
@@ -162,6 +193,8 @@ void PageWidget::load() {
 }
 
 void PageWidget::unload() {
+    if(!loaded) return;
+
     loaded = false;
     update();
 }

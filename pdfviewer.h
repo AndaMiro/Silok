@@ -37,10 +37,9 @@ private:
     QString file;
     std::unique_ptr<Poppler::Document> doc;
     Ui::PdfViewer *ui;
-    QImage sizeImage;
     QVBoxLayout *layout;
-    QVector<PageWidget*> pageWidgets;
     SmartController *controller;
+    //QVector<PageWidget*> pageWidgets;
 };
 
 
